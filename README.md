@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/28907748/README.md)
 # Vishvyaatmik AI Email Manager — v2
 
 ## What was actually going wrong

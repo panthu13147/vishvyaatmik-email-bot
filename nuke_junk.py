@@ -1,56 +1,38 @@
-import imaplib
-import email
-import os
-from dotenv import load_dotenv
+"""
+Stand-alone utility: mark obviously-junk unread emails as read WITHOUT
+calling any AI. Uses the exact same rules as the main bot (config.py /
+classifier.py), so "junk" is defined in exactly one place.
 
-load_dotenv()
-EMAIL_USER = os.getenv('EMAIL_USER')
-EMAIL_PASS = os.getenv('EMAIL_PASS')
+Handy for clearing a backlog fast before letting main.py's AI work
+through what's left.
+"""
 
-# 🗑️ THE MEGA TRASH LIST (Add more words if you want)
-JUNK_KEYWORDS = ['swiggy', 'zomato', 'uber', 'tentabs', 'marketing', 'newsletter', 'promotions', 'noreply', 'no-reply', 'offers', 'linkedin', 'spam', 'updates@', 'info@']
+import email_service
+from classifier import pre_classify
+
 
 def run_nuke():
-    print("☢️ NUKE SEQUENCE INITIATED: Bypassing AI, targeting only junk...")
+    print("☢️  NUKE: scanning unread mail for obvious junk (no AI calls)...")
+    mail = email_service.connect()
     try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(EMAIL_USER, EMAIL_PASS)
-        mail.select("inbox")
-
-        status, messages = mail.search(None, "UNSEEN")
-        email_ids = messages[0].split()
-
-        if not email_ids:
-            print("📭 Inbox is already clear of unread emails.")
+        items = email_service.fetch_unread_headers(mail, batch_size=500)
+        if not items:
+            print("📭 Inbox already clear of unread mail.")
             return
 
-        print(f"🎯 Found {len(email_ids)} unread emails. Scanning for trash...")
-        
         nuked = 0
-        for e_id in email_ids:
-            # PEEK.HEADER sirf title/sender uthata hai, poora mail nahi, isliye ultra-fast hai
-            status, msg_data = mail.fetch(e_id, "(RFC822.HEADER)")
-            for response_part in msg_data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
-                    
-                    sender = str(msg.get("From")).lower()
-                    subject = str(msg.get("Subject")).lower()
-                    
-                    # Agar sender ya subject mein junk word hai, toh uda do
-                    is_junk = any(junk in sender or junk in subject for junk in JUNK_KEYWORDS)
-                    
-                    if is_junk:
-                        mail.store(e_id, '+FLAGS', '\\Seen')
-                        nuked += 1
-                        print(f"💥 NUKED: {sender[:30]}...")
+        for item in items:
+            category = pre_classify(item["sender"], item["subject"])
+            if category == "JUNK":
+                email_service.mark_as_read(mail, item["id"])
+                nuked += 1
+                print(f"💥 NUKED: {item['sender'][:60]}")
 
+        print(f"\n✅ Done: {nuked}/{len(items)} unread emails marked as junk and cleared.")
+        print("Run main.py to let the AI triage what's left.")
+    finally:
         mail.logout()
-        print(f"\n✅ NUKE COMPLETE: {nuked} junk emails destroyed without using API!")
-        print("Ab tu 'main.py' run karke bache hue important emails ko summarize karwa sakta hai.")
-        
-    except Exception as e:
-        print(f"❌ Nuke Error: {e}")
+
 
 if __name__ == "__main__":
     run_nuke()
